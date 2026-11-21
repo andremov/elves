@@ -226,6 +226,8 @@ async function writeOwnerAtomically(markerPath: string, owner: DataRootOwner): P
     await handle.close()
   }
   await rename(temporary, join(markerPath, OWNER_FILE))
+  // Windows cannot fsync a directory handle (EPERM); NTFS journals the rename.
+  if (process.platform === 'win32') return
   const directory = await open(markerPath, 'r')
   try {
     await directory.sync()
