@@ -141,6 +141,32 @@ export async function acquireDataRootOwnership(
   )
 }
 
+/**
+ * Acquire, reclaiming ONLY a marker left on this host by a process that no
+ * longer exists. Normal startup never reclaims (see acquireDataRootOwnership);
+ * this is the opt-in for dev on Windows, where a watcher restart hard-kills the
+ * server before it can release its marker, stranding it on every reload.
+ * Foreign-host, live, ambiguous, malformed, and wrong-root markers still fail
+ * closed, and the reclaim goes through recoverDataRootOwnership, which
+ * re-checks the marker under its recovery guard before removing it.
+ */
+export async function acquireDataRootOwnershipReclaimingAbsent(
+  dataRoot: string,
+  options: OwnershipOptions = {},
+): Promise<{ ownership: DataRootOwnership; reclaimed?: DataRootOwner }> {
+  try {
+    return { ownership: await acquireDataRootOwnership(dataRoot, options) }
+  } catch (error) {
+    if (!(error instanceof DataRootOwnershipError)) throw error
+    const owner = error.owner
+    if (!owner || owner.canonicalRoot !== error.canonicalRoot) throw error
+    if (owner.hostname !== (options.hostname ?? localHostname())) throw error
+    if ((options.probePid ?? probePid)(owner.pid) !== 'absent') throw error
+    await recoverDataRootOwnership(dataRoot, { ...options, force: true })
+    return { ownership: await acquireDataRootOwnership(dataRoot, options), reclaimed: owner }
+  }
+}
+
 export async function recoverDataRootOwnership(
   dataRoot: string,
   options: RecoveryOptions,

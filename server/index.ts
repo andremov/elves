@@ -15,7 +15,11 @@ import { OllamaSummarizer } from './summarize'
 import { resolveHost } from './host'
 import { createAgentRunner } from './agentRun'
 import type { CanvasServer } from './app'
-import { acquireDataRootOwnership, type DataRootOwnership } from './dataRootOwnership'
+import {
+  acquireDataRootOwnership,
+  acquireDataRootOwnershipReclaimingAbsent,
+  type DataRootOwnership,
+} from './dataRootOwnership'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dataRoot = process.env.ELVES_DATA ?? join(here, '..', 'data')
@@ -46,7 +50,17 @@ async function main() {
   process.once('SIGINT', requestShutdown)
   process.once('SIGTERM', requestShutdown)
   try {
-    ownership = await acquireDataRootOwnership(dataRoot, { runtimeRoot: testRuntimeRoot })
+    // ELVES_RECLAIM_ABSENT_OWNER=1 lets startup take over a marker stranded by
+    // a hard-killed server on this machine (a watcher restart on Windows).
+    if (process.env.ELVES_RECLAIM_ABSENT_OWNER === '1') {
+      const acquired = await acquireDataRootOwnershipReclaimingAbsent(dataRoot, { runtimeRoot: testRuntimeRoot })
+      ownership = acquired.ownership
+      if (acquired.reclaimed) {
+        console.error(`[elves] reclaimed data-root ownership left by absent PID ${acquired.reclaimed.pid}`)
+      }
+    } else {
+      ownership = await acquireDataRootOwnership(dataRoot, { runtimeRoot: testRuntimeRoot })
+    }
     checkShutdown()
     await interruptibleBootstrapPause(checkShutdown)
     const running = await serve(ownership, checkShutdown, (server, close, shutdown) => {
