@@ -10,6 +10,10 @@ import {
   recoverDataRootOwnership,
 } from '../../server/dataRootOwnership'
 
+// A directory symlink needs admin rights (or Developer Mode) on Windows; a
+// junction is the unprivileged equivalent. Other platforms ignore the type.
+const DIR_LINK = process.platform === 'win32' ? 'junction' : 'dir'
+
 const cleanups: string[] = []
 
 afterEach(async () => {
@@ -28,7 +32,7 @@ async function fixture() {
 test('canonical aliases derive one external marker and a second owner fails closed', async () => {
   const { base, dataRoot, runtimeRoot } = await fixture()
   const alias = join(base, 'data-alias')
-  await symlink(dataRoot, alias)
+  await symlink(dataRoot, alias, DIR_LINK)
   const canonical = await canonicalDataRoot(dataRoot)
   expect(await canonicalDataRoot(alias)).toBe(canonical)
 

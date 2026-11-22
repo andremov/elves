@@ -11,6 +11,15 @@ import {
   recoverDataRootOwnership,
 } from '../../server/dataRootOwnership'
 
+// A directory symlink needs admin rights (or Developer Mode) on Windows; a
+// junction is the unprivileged equivalent. Other platforms ignore the type.
+const DIR_LINK = process.platform === 'win32' ? 'junction' : 'dir'
+
+// Windows has no catchable SIGTERM: child.kill('SIGTERM') is TerminateProcess,
+// so the server's graceful release never runs. Assertions about what a
+// graceful shutdown leaves behind only hold where signals do.
+const GRACEFUL_SIGNALS = process.platform !== 'win32'
+
 const children = new Set<ChildProcess>()
 const cleanups: string[] = []
 
@@ -25,7 +34,7 @@ afterEach(async () => {
 test('a second server through a symlink fails before mutation while the owner keeps serving', async () => {
   const { base, dataRoot, runtimeRoot } = await fixture()
   const alias = join(base, 'data-alias')
-  await symlink(dataRoot, alias)
+  await symlink(dataRoot, alias, DIR_LINK)
   const serverA = await startServer(dataRoot, runtimeRoot)
 
   const createdResponse = await fetch(`${serverA.url}/projects`, {
@@ -59,8 +68,10 @@ test('a second server through a symlink fails before mutation while the owner ke
   })
   serverA.child.kill('SIGTERM')
   await waitForExit(serverA.child)
-  await expect(readFile(join(await markerFor(dataRoot, runtimeRoot), 'owner.json')))
-    .rejects.toMatchObject({ code: 'ENOENT' })
+  if (GRACEFUL_SIGNALS) {
+    await expect(readFile(join(await markerFor(dataRoot, runtimeRoot), 'owner.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+  }
 })
 
 test('a server keeps using the canonical root after its launch symlink is retargeted', async () => {
@@ -70,11 +81,11 @@ test('a server keeps using the canonical root after its launch symlink is retarg
   const alias = join(base, 'current-data')
   await mkdir(rootA)
   await mkdir(rootB)
-  await symlink(rootA, alias)
+  await symlink(rootA, alias, DIR_LINK)
   const serverA = await startServer(alias, runtimeRoot)
 
   await unlink(alias)
-  await symlink(rootB, alias)
+  await symlink(rootB, alias, DIR_LINK)
   const created = await fetch(`${serverA.url}/projects`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Still root A' }),
   })
@@ -93,7 +104,7 @@ test('a server keeps using the canonical root after its launch symlink is retarg
   await Promise.all([waitForExit(serverA.child), waitForExit(serverB.child)])
 })
 
-test('SIGTERM during bootstrap releases ownership before any server becomes ready', async () => {
+test.skipIf(!GRACEFUL_SIGNALS)('SIGTERM during bootstrap releases ownership before any server becomes ready', async () => {
   const { dataRoot, runtimeRoot } = await fixture()
   const port = await freePort()
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
@@ -126,7 +137,7 @@ test('SIGTERM during bootstrap releases ownership before any server becomes read
   expect(await snapshotTree(dataRoot)).toEqual(beforeSignal)
 })
 
-test('SIGTERM waits for an active agent child to stop before releasing ownership', async () => {
+test.skipIf(!GRACEFUL_SIGNALS)('SIGTERM waits for an active agent child to stop before releasing ownership', async () => {
   const { base, dataRoot, runtimeRoot } = await fixture()
   const cli = join(base, 'agent-stub.sh')
   const started = join(base, 'agent-started')

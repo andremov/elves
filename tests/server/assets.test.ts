@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'vitest'
 import { promises as fs } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { assetsDir, extForMime, saveAsset, resolveAssetPath } from '../../server/assets'
 
@@ -37,5 +37,5 @@ test('resolveAssetPath rejects path traversal and accepts a bare filename', () =
   expect(resolveAssetPath(d, 'a/b.png')).toBeNull()
   expect(resolveAssetPath(d, '../secret')).toBeNull()
   expect(resolveAssetPath(d, '.hidden')).toBeNull()
-  expect(resolveAssetPath(d, 'abc.png')).toBe(join('/assets', 'abc.png'))
+  expect(resolveAssetPath(d, 'abc.png')).toBe(resolve('/assets', 'abc.png'))
 })
